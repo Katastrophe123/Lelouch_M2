@@ -16,6 +16,8 @@ from httpx import ASGITransport, AsyncClient
 
 from app.agents.graph import build_tutor_graph
 from app.assistant.runner import FakeAgentRunner
+from app.coach.fake import FakeCoachLLM
+from app.coach.service import CoachModels, CoachService
 from app.config import Settings
 from app.core.security import create_access_token
 from app.db.base import Base
@@ -61,6 +63,9 @@ def settings() -> Settings:
         rag_chunk_overlap=50,
         max_upload_mb=1.0,
         web_dist_dir=None,
+        coach_backend="fake",
+        coach_max_passages=6,
+        coach_passage_chars=1200,
     )
 
 
@@ -175,6 +180,32 @@ def agent_service(
 
 
 @pytest.fixture
+def coach_models() -> CoachModels:
+    return CoachModels(
+        writer=FakeCoachLLM(),
+        verifier=FakeCoachLLM("fake-verifier"),
+        grader=FakeCoachLLM("fake-grader"),
+    )
+
+
+@pytest.fixture
+def coach_service(
+    settings: Settings,
+    database: Database,
+    knowledge_service: KnowledgeService,
+    coach_models: CoachModels,
+    agent_runner: Any,
+) -> CoachService:
+    return CoachService(
+        settings=settings,
+        database=database,
+        knowledge=knowledge_service,
+        models=coach_models,
+        agent_runner=agent_runner,
+    )
+
+
+@pytest.fixture
 def app(
     settings: Settings,
     database: Database,
@@ -182,6 +213,7 @@ def app(
     fake_sleep: Any,
     knowledge_service: KnowledgeService,
     agent_service: AgentService,
+    coach_service: CoachService,
 ) -> Iterator[FastAPI]:
     """App instance wired to the test database and a scripted LLM.
 
@@ -196,6 +228,7 @@ def app(
     )
     application.state.knowledge_service = knowledge_service
     application.state.agent_service = agent_service
+    application.state.coach_service = coach_service
     yield application
 
 

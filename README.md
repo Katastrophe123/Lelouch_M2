@@ -22,6 +22,49 @@ dragged straight into the chat.
 
 ---
 
+## Memory coach (v4, in progress)
+
+Lelouch's direction: a coach that turns what you study into verified
+questions and brings them back at the right time, until you can answer
+without help. The research case and the full roadmap are in
+[`docs/PLAN.md`](docs/PLAN.md). Tracks: **UPSC** and **AI engineering**
+(ML, DL, RL, RL environments and evals such as Harbor).
+
+**Milestone 2 (the learning engine, API only) is built.**
+
+- **Verified generation.** Passages from your documents (or a topic the agent
+  researches into a sourced note) go to a writer model. Every draft is checked
+  for format, for whether its supporting quote really appears in the source,
+  and for duplicates, then reviewed by a stricter verifier model. Rejections
+  are counted per reason in the job's `stats`.
+- **Question styles per track.** UPSC decks get Prelims-style statement
+  questions, match-the-pairs and exact-fact blanks. Tech decks get mechanism
+  and trade-off questions, formulas and small calculations. Each deck can be
+  English, Hindi or Hinglish.
+- **Spaced repetition with FSRS.** Each answer is graded (exactly for choices,
+  blanks and numbers; by Claude for short answers) and becomes an FSRS rating.
+  The deck targets 90% recall, with daily limits on new and review cards.
+- **Three-level hints** for every card, and the source passage after you answer.
+
+Try it on one of your files (real runs use Claude and your credit):
+
+```bash
+python -m scripts.generate_cards notes/polity-ch3.pdf --deck "Indian Polity" --track upsc
+python -m scripts.generate_cards --topic "Bellman equation" --deck "RL" --track tech --cards 8
+```
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /decks/presets` | Starter decks for each track |
+| `POST /decks` · `GET/PATCH/DELETE /decks/{id}` | Manage decks |
+| `POST /decks/{id}/generate` · `GET /jobs/{id}` | Make cards in the background, follow progress |
+| `GET /decks/{id}/cards` · `PATCH/DELETE /cards/{id}` · `POST /cards/{id}/flag` | Library, edits, reports |
+| `GET /review/queue` | What to review now (answers hidden) |
+| `GET /cards/{id}/hint?level=1` · `POST /cards/{id}/review` | Hints, answering |
+| `GET /stats` | Streak, due counts, accuracy, concept strength |
+
+---
+
 ## Agent mode (v3)
 
 ### What it can do
@@ -278,7 +321,7 @@ frontend/                # previous Streamlit client - no LLM, no DB, no prompts
 legacy/                  # v1, for reference only
 alembic/                 # async migration environment + versions
 scripts/                 # seed_demo.py
-tests/                   # 369 backend tests, fully offline (+ 9 web tests)
+tests/                   # 414 backend tests, fully offline (+ 9 web tests)
 ```
 
 ---
@@ -526,7 +569,7 @@ The suite is **fully offline**: SQLite in-memory for persistence and scripted
 fake LLM clients for the model. No API key, no PostgreSQL, no network.
 
 ```bash
-pytest                                              # 369 tests
+pytest                                              # 414 tests
 (cd web && npm test)                                # 9 web tests
 pytest --cov=app --cov-report=term-missing          # coverage report
 pytest tests/test_graph_routing.py -v               # just the graph branches
@@ -536,8 +579,8 @@ ruff check . && ruff format --check . && mypy app scripts frontend
 Measured on the committed code (Python 3.13, `pytest 9.1.1`):
 
 ```
-369 passed in 8.7s
-TOTAL  2502 statements   87 missed   97% coverage
+414 passed in 27s
+TOTAL  3816 statements   134 missed   96% coverage
 ```
 
 What the tests actually cover:

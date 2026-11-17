@@ -13,8 +13,10 @@ from fastapi.staticfiles import StaticFiles
 from app import __version__
 from app.api.errors import register_exception_handlers
 from app.api.middleware import RequestContextMiddleware
-from app.api.routes import agent, auth, conversations, documents, health
+from app.api.routes import agent, auth, coach, conversations, documents, health
 from app.assistant.runner import auth_mode, build_agent_runner
+from app.coach.models import build_coach_models
+from app.coach.service import CoachService
 from app.config import Settings, get_settings
 from app.db.session import Database
 from app.knowledge.embeddings import build_embedder
@@ -60,9 +62,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         settings=settings, database=database, embedder=build_embedder(settings)
     )
     app.state.knowledge_service = knowledge
+    agent_runner = build_agent_runner(settings)
     app.state.agent_service = AgentService(
-        settings=settings, runner=build_agent_runner(settings), knowledge=knowledge
+        settings=settings, runner=agent_runner, knowledge=knowledge
     )
+    coach_service = CoachService(
+        settings=settings,
+        database=database,
+        knowledge=knowledge,
+        models=build_coach_models(settings),
+        agent_runner=agent_runner,
+    )
+    app.state.coach_service = coach_service
 
     logger.info(
         "application_started",
@@ -79,6 +90,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        await coach_service.shutdown()
         await llm.aclose()
         await database.dispose()
         logger.info("application_stopped")
@@ -117,6 +129,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(conversations.router)
     app.include_router(agent.router)
     app.include_router(documents.router)
+    app.include_router(coach.router)
 
     mount_web_app(app, resolved.web_dist_dir)
     return app

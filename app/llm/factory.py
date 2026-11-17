@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from app.config import Settings
 from app.llm.base import LLMClient, LLMPermanentError
+from app.llm.claude import ClaudeAgentLLMClient
 from app.llm.providers import (
     HuggingFaceInferenceClient,
     OpenAICompatibleClient,
@@ -25,6 +26,20 @@ def build_llm_client(settings: Settings) -> LLMClient:
     if provider == "stub":
         logger.info("llm_client_selected", provider="stub", model="stub-tutor-v1")
         return StubLLMClient()
+
+    if provider == "claude":
+        # Signs in through the Claude engine, so no LLM_API_KEY is needed.
+        model = (
+            settings.llm_model
+            if settings.llm_model.startswith("claude")
+            else (settings.coach_generation_model)
+        )
+        logger.info("llm_client_selected", provider="claude", model=model)
+        return ClaudeAgentLLMClient(
+            model=model,
+            timeout_seconds=settings.coach_llm_timeout_seconds,
+            cli_path=settings.agent_cli_path,
+        )
 
     if not settings.llm_api_key:
         raise LLMPermanentError(

@@ -109,3 +109,53 @@ class StreamEventType(StrEnum):
     TOKEN = "token"
     DONE = "done"
     ERROR = "error"
+
+
+# --------------------------------------------------------------------------- #
+# Memory coach
+# --------------------------------------------------------------------------- #
+class Track(StrEnum):
+    """Shapes how questions are written for a deck."""
+
+    #: UPSC Civil Services: Prelims-style statement MCQs, facts, concepts.
+    UPSC = "upsc"
+    #: AI engineering: AI, ML, DL, RL, RL environments and evals.
+    TECH = "tech"
+    GENERAL = "general"
+
+
+class DeckLanguage(StrEnum):
+    ENGLISH = "en"
+    HINDI = "hi"
+    #: Hindi written in Latin script, mixed with English terms.
+    HINGLISH = "hinglish"
+
+
+class CardKind(StrEnum):
+    MCQ = "mcq"
+    CLOZE = "cloze"
+    NUMERIC = "numeric"
+    SHORT = "short"
+
+
+class CardStatus(StrEnum):
+    ACTIVE = "active"
+    SUSPENDED = "suspended"
+    #: Reported by the learner as wrong or unclear; kept out of reviews.
+    FLAGGED = "flagged"
+
+
+class JobStatus(StrEnum):
+    PENDING = "pending"
+    RUNNING = "running"
+    DONE = "done"
+    FAILED = "failed"
+
+
+class ReviewRating(StrEnum):
+    """FSRS ratings, by name. Values match ``fsrs.Rating``."""
+
+    AGAIN = "again"
+    HARD = "hard"
+    GOOD = "good"
+    EASY = "easy"

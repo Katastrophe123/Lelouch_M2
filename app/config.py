@@ -8,12 +8,13 @@ from typing import Literal
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-LLMProvider = Literal["stub", "openai", "huggingface"]
+LLMProvider = Literal["stub", "openai", "huggingface", "claude"]
 Environment = Literal["local", "test", "production"]
 AgentBackend = Literal["claude_sdk", "fake"]
 AgentEffort = Literal["low", "medium", "high", "xhigh", "max"]
 AgentThinking = Literal["adaptive", "disabled"]
 EmbeddingBackend = Literal["fastembed", "hashing"]
+CoachBackend = Literal["claude", "fake"]
 
 
 class Settings(BaseSettings):
@@ -90,6 +91,22 @@ class Settings(BaseSettings):
     rag_chunk_overlap: int = Field(default=200, ge=0, le=2000)
     rag_top_k: int = Field(default=6, ge=1, le=50)
     max_upload_mb: float = Field(default=20.0, gt=0.0)
+
+    # --- Memory coach -------------------------------------------------------
+    # "claude" calls Claude through the Agent SDK (your Claude login, or
+    # ANTHROPIC_API_KEY when set). "fake" is a scripted offline model.
+    coach_backend: CoachBackend = "claude"
+    # Writing questions needs care, checking them needs rigour, grading short
+    # answers just needs to be quick and cheap.
+    coach_generation_model: str = "claude-sonnet-5-5"
+    coach_verifier_model: str = "claude-opus-5-5"
+    coach_grader_model: str = "claude-haiku-5-5"
+    coach_max_cards_per_job: int = Field(default=40, ge=1, le=200)
+    coach_passage_chars: int = Field(default=3500, ge=500, le=20000)
+    coach_max_passages: int = Field(default=12, ge=1, le=60)
+    coach_min_verifier_confidence: float = Field(default=0.7, ge=0.0, le=1.0)
+    coach_timezone: str = "Asia/Kolkata"
+    coach_llm_timeout_seconds: float = Field(default=240.0, gt=0.0)
 
     # --- Pagination -------------------------------------------------------
     default_page_size: int = Field(default=20, ge=1, le=200)

@@ -12,6 +12,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import UnauthorizedError
+from app.coach.service import CoachService
 from app.config import Settings, get_settings
 from app.core.security import AuthError, decode_access_token
 from app.db.repository import ConversationRepository, UserRepository
@@ -85,6 +86,13 @@ def get_agent_service(request: Request) -> AgentService:
     return service
 
 
+def get_coach_service(request: Request) -> CoachService:
+    service: CoachService | None = getattr(request.app.state, "coach_service", None)
+    if service is None:  # pragma: no cover - would mean a broken lifespan
+        raise RuntimeError("CoachService is not initialised on app state")
+    return service
+
+
 def get_knowledge_service(request: Request) -> KnowledgeService:
     service: KnowledgeService | None = getattr(request.app.state, "knowledge_service", None)
     if service is None:  # pragma: no cover - would mean a broken lifespan
@@ -137,4 +145,5 @@ ConversationServiceDep = Annotated[ConversationService, Depends(get_conversation
 TutorServiceDep = Annotated[TutorService, Depends(get_tutor_service)]
 AgentServiceDep = Annotated[AgentService, Depends(get_agent_service)]
 KnowledgeServiceDep = Annotated[KnowledgeService, Depends(get_knowledge_service)]
+CoachServiceDep = Annotated[CoachService, Depends(get_coach_service)]
 PaginationDep = Annotated[PaginationParams, Depends(PaginationParams)]

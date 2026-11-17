@@ -28,7 +28,16 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampType, utcnow
-from app.models.enums import AnswerStatus, ConversationMode, ConversationStatus, MessageRole
+from app.models.enums import (
+    AnswerStatus,
+    CardStatus,
+    ConversationMode,
+    ConversationStatus,
+    DeckLanguage,
+    JobStatus,
+    MessageRole,
+    Track,
+)
 
 #: Width of the stored embeddings. Must match ``EMBEDDING_MODEL``; the default
 #: BAAI/bge-small-en-v1.5 produces 384-dimensional vectors. Changing the model
@@ -211,3 +220,154 @@ class DocumentChunk(Base):
             postgresql_ops={"embedding": "vector_cosine_ops"},
         ),
     )
+
+
+# --------------------------------------------------------------------------- #
+# Memory coach
+# --------------------------------------------------------------------------- #
+class Deck(Base):
+    """A subject the learner is studying, e.g. "Indian Polity" or "RL basics"."""
+
+    __tablename__ = "decks"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    track: Mapped[str] = mapped_column(String(16), nullable=False, default=Track.GENERAL)
+    language: Mapped[str] = mapped_column(String(16), nullable=False, default=DeckLanguage.ENGLISH)
+    #: Share of cards the scheduler aims to have you remember (FSRS).
+    desired_retention: Mapped[float] = mapped_column(Float, nullable=False, default=0.9)
+    new_per_day: Mapped[int] = mapped_column(Integer, nullable=False, default=20)
+    reviews_per_day: Mapped[int] = mapped_column(Integer, nullable=False, default=200)
+    exam_date: Mapped[datetime | None] = mapped_column(TimestampType, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(TimestampType, nullable=False, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        TimestampType, nullable=False, default=utcnow, onupdate=utcnow
+    )
+
+    __table_args__ = (UniqueConstraint("user_id", "name", name="uq_decks_user_name"),)
+
+
+class Concept(Base):
+    """One idea within a deck; cards test it from different angles."""
+
+    __tablename__ = "concepts"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True, default=uuid.uuid4)
+    deck_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(), ForeignKey("decks.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid(), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(TimestampType, nullable=False, default=utcnow)
+
+    __table_args__ = (UniqueConstraint("deck_id", "name", name="uq_concepts_deck_name"),)
+
+
+class Card(Base):
+    """A single question, with its answer, hints and the passage it came from."""
+
+    __tablename__ = "cards"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True, default=uuid.uuid4)
+    deck_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(), ForeignKey("decks.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    concept_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(), ForeignKey("concepts.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid(), nullable=False, index=True)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    choices: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    answer_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    answer: Mapped[str] = mapped_column(Text, nullable=False)
+    #: Other answers that count as correct for blanks and short answers.
+    accepted: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    hints: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    source_document_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(), ForeignKey("documents.id", ondelete="SET NULL"), nullable=True
+    )
+    source_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    source_excerpt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    verification: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default=CardStatus.ACTIVE)
+    flag_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    job_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(TimestampType, nullable=False, default=utcnow)
+
+    state: Mapped[CardState] = relationship(
+        back_populates="card", cascade="all, delete-orphan", uselist=False, lazy="joined"
+    )
+    concept: Mapped[Concept | None] = relationship(lazy="joined")
+
+
+class CardState(Base):
+    """FSRS memory state for one card. ``due`` is denormalised for queries."""
+
+    __tablename__ = "card_states"
+
+    card_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(), ForeignKey("cards.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid(), nullable=False, index=True)
+    deck_id: Mapped[uuid.UUID] = mapped_column(Uuid(), nullable=False, index=True)
+    fsrs: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    due: Mapped[datetime] = mapped_column(TimestampType, nullable=False, index=True)
+    reps: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    lapses: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_review: Mapped[datetime | None] = mapped_column(TimestampType, nullable=True)
+
+    card: Mapped[Card] = relationship(back_populates="state")
+
+
+class ReviewLog(Base):
+    """Every answer, which is what FSRS and the progress view learn from."""
+
+    __tablename__ = "review_logs"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True, default=uuid.uuid4)
+    card_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(), ForeignKey("cards.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid(), nullable=False, index=True)
+    deck_id: Mapped[uuid.UUID] = mapped_column(Uuid(), nullable=False, index=True)
+    rating: Mapped[str] = mapped_column(String(8), nullable=False)
+    correct: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    partial: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    hints_used: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    revealed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    response: Mapped[str | None] = mapped_column(Text, nullable=True)
+    grader: Mapped[str] = mapped_column(String(16), nullable=False)
+    was_new: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    interval_days: Mapped[float | None] = mapped_column(Float, nullable=True)
+    reviewed_at: Mapped[datetime] = mapped_column(
+        TimestampType, nullable=False, default=utcnow, index=True
+    )
+
+
+class GenerationJob(Base):
+    """A background run that turns material into cards."""
+
+    __tablename__ = "generation_jobs"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True, default=uuid.uuid4)
+    deck_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(), ForeignKey("decks.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid(), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default=JobStatus.PENDING)
+    #: What to make cards from: {"document_ids": [...]} or {"topic": "..."}.
+    request: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    stage: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    progress: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    stats: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(TimestampType, nullable=False, default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(TimestampType, nullable=True)
